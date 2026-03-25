@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>股票止损位计算器</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+            animation: fadeIn 0.5s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 28px;
+            font-weight: 600;
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            color: #555;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            background: #f9f9f9;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+            background: white;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 30px;
+        }
+
+        button {
+            flex: 1;
+            padding: 14px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .calculate-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .calculate-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .reset-btn {
+            background: #f0f0f0;
+            color: #666;
+        }
+
+        .reset-btn:hover {
+            background: #e0e0e0;
+        }
+
+        .result {
+            margin-top: 30px;
+            padding: 20px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            border-radius: 10px;
+            display: none;
+        }
+
+        .result.show {
+            display: block;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .result-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+        }
+
+        .result-item:last-child {
+            border-bottom: none;
+        }
+
+        .result-item.divider {
+            border-bottom: 2px solid #764ba2;
+            padding-bottom: 15px;
+            margin-bottom: 5px;
+        }
+
+        .result-label {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .result-value {
+            color: #333;
+            font-weight: 600;
+            font-size: 16px;
+        }
+
+        .result-value.highlight {
+            color: #764ba2;
+            font-size: 20px;
+        }
+
+        .stock-name {
+            text-align: center;
+            font-size: 18px;
+            font-weight: 600;
+            color: #764ba2;
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid rgba(118, 75, 162, 0.2);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📈 股票止损位计算器</h1>
+
+        <div class="input-group">
+            <label for="costPrice">成本价</label>
+            <input type="number" id="costPrice" step="0.01" placeholder="例如：100.50" oninput="updateParameter()">
+        </div>
+
+        <div class="input-group">
+            <label for="highestPrice">最高价</label>
+            <input type="number" id="highestPrice" step="0.01" placeholder="例如：120.00" oninput="updateParameter()">
+        </div>
+
+        <div class="input-group">
+            <label for="parameter">参数</label>
+            <input type="number" id="parameter" step="0.001" value="0.618" list="parameterList" placeholder="默认：0.618">
+            <datalist id="parameterList">
+                <option value="0.5">
+                <option value="0.618">
+                <option value="0.8">
+            </datalist>
+        </div>
+
+        <div class="button-group">
+            <button class="calculate-btn" onclick="calculate()">计算止损位</button>
+            <button class="reset-btn" onclick="resetForm()">重置</button>
+        </div>
+
+        <div class="result" id="result">
+            <div class="result-item">
+                <span class="result-label">成本价</span>
+                <span class="result-value" id="resultCost"></span>
+            </div>
+            <div class="result-item">
+                <span class="result-label">最高价</span>
+                <span class="result-value" id="resultHighest"></span>
+            </div>
+            <div class="result-item divider">
+                <span class="result-label">最高位利润</span>
+                <span class="result-value" id="resultHighestProfit"></span>
+            </div>
+            <div class="result-item">
+                <span class="result-label">止损位</span>
+                <span class="result-value highlight" id="resultStopLoss"></span>
+            </div>
+            <div class="result-item">
+                <span class="result-label">最高位止损</span>
+                <span class="result-value" id="resultStopLossPercent"></span>
+            </div>
+            <div class="result-item">
+                <span class="result-label">止损位利润</span>
+                <span class="result-value" id="resultStopLossProfit"></span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 根据成本价和最高价自动更新参数
+        function updateParameter() {
+            const costPrice = parseFloat(document.getElementById('costPrice').value);
+            const highestPrice = parseFloat(document.getElementById('highestPrice').value);
+
+            // 只有当两个值都有效时才更新参数
+            if (!isNaN(costPrice) && !isNaN(highestPrice) && costPrice > 0 && highestPrice > 0) {
+                // 计算最高位利润
+                const highestProfit = (highestPrice - costPrice) / costPrice * 100;
+
+                // 根据最高位利润自动设置参数
+                let autoParameter;
+                if (highestProfit <= 20) {
+                    autoParameter = 0.5;
+                } else if (highestProfit > 20 && highestProfit < 50) {
+                    autoParameter = 0.618;
+                } else {
+                    autoParameter = 0.8;
+                }
+
+                // 更新参数输入框的值
+                document.getElementById('parameter').value = autoParameter;
+            }
+        }
+
+        function calculate() {
+            const costPrice = parseFloat(document.getElementById('costPrice').value);
+            const highestPrice = parseFloat(document.getElementById('highestPrice').value);
+            const parameter = parseFloat(document.getElementById('parameter').value);
+
+            // 验证输入
+            if (isNaN(costPrice) || isNaN(highestPrice) || isNaN(parameter)) {
+                alert('请输入有效的数值');
+                return;
+            }
+
+            if (costPrice <= 0 || highestPrice <= 0) {
+                alert('价格必须大于0');
+                return;
+            }
+
+            if (parameter < 0 || parameter > 1) {
+                alert('参数必须在0到1之间');
+                return;
+            }
+
+            // 计算最高位利润
+            const highestProfit = (highestPrice - costPrice) / costPrice * 100;
+
+            // 计算止损位：(最高价-成本价)*参数+成本价
+            const stopLoss = (highestPrice - costPrice) * parameter + costPrice;
+
+            // 计算最高位止损百分比
+            const stopLossPercent = (stopLoss - highestPrice) / highestPrice * 100;
+
+            // 计算止损位利润
+            const stopLossProfit = (stopLoss - costPrice) / costPrice * 100;
+
+            // 显示结果
+            document.getElementById('resultCost').textContent = '¥' + costPrice.toFixed(2);
+            document.getElementById('resultHighest').textContent = '¥' + highestPrice.toFixed(2);
+            document.getElementById('resultHighestProfit').textContent = highestProfit.toFixed(2) + '%';
+            document.getElementById('resultStopLoss').textContent = '¥' + stopLoss.toFixed(2);
+            document.getElementById('resultStopLossPercent').textContent = stopLossPercent.toFixed(2) + '%';
+            document.getElementById('resultStopLossProfit').textContent = stopLossProfit.toFixed(2) + '%';
+
+            document.getElementById('result').classList.add('show');
+        }
+
+        function resetForm() {
+            document.getElementById('costPrice').value = '';
+            document.getElementById('highestPrice').value = '';
+            document.getElementById('parameter').value = '0.618';
+            document.getElementById('result').classList.remove('show');
+        }
+
+        // 支持按Enter键计算
+        document.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                calculate();
+            }
+        });
+    </script>
+</body>
+</html>
