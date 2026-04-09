@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>家政清洁 Routine 管理（支持打印）</title>
+    <style>
+        :root {
+            --high-priority: #ff4d4f;
+            --medium-priority: #faad14;
+            --low-priority: #52c41a;
+            --primary-bg: #f0f2f5;
+        }
+
+        body { font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif; background: var(--primary-bg); padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        
+        h1 { text-align: center; color: #333; }
+        .controls, .item-actions, .category-header button { display: flex; gap: 10px; margin-bottom: 20px; }
+        
+        /* 交互控件样式 */
+        .no-print { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+        input, select, button { padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; }
+        button { cursor: pointer; background: #1890ff; color: white; border: none; font-weight: bold; }
+        button:hover { opacity: 0.8; }
+        .delete-btn { background: #ff4d4f; }
+        .print-btn { background: #52c41a; }
+        .export-btn { background: #722ed1; }
+
+        .category-card { border: 1px solid #e8e8e8; border-radius: 8px; padding: 15px; margin-bottom: 20px; background: #fafafa; page-break-inside: avoid; }
+        .category-header { display: flex; align-items: center; margin-bottom: 15px; border-bottom: 2px solid #1890ff; padding-bottom: 5px; }
+        .category-title { font-weight: bold; font-size: 1.2em; flex-grow: 1; }
+
+        .item-list { list-style: none; padding: 0; }
+        .task-item { display: flex; align-items: center; background: white; padding: 10px; margin-bottom: 8px; border-radius: 4px; border-left: 5px solid #ccc; }
+        
+        /* 优先级颜色 */
+        .priority-high { border-left-color: var(--high-priority); }
+        .priority-medium { border-left-color: var(--medium-priority); }
+        .priority-low { border-left-color: var(--low-priority); }
+        
+        .task-item.completed .task-text { text-decoration: line-through; color: #999; }
+        .task-text { flex-grow: 1; margin: 0 15px; outline: none; }
+
+        /* 打印专用样式 */
+        @media print {
+            body { background: white; padding: 0; }
+            .container { box-shadow: none; max-width: 100%; width: 100%; }
+            .no-print, button, .delete-btn, select, input, .export-btn, #log-container { display: none !important; }
+            .category-card { border: 1px solid #000; margin-bottom: 10px; }
+            .category-header { border-bottom: 2px solid #000; }
+            .task-item { border: 1px solid #eee; border-left: 8px solid #333 !important; margin-bottom: 5px; }
+            /* 强制显示打印下的复选框样式 */
+            .task-item::before { content: "☐"; font-size: 20px; margin-right: 10px; }
+            input[type="checkbox"] { display: none; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🧹 我的清洁 Routine 清单</h1>
+
+    <div class="no-print">
+        <input type="text" id="newCategoryInput" placeholder="输入新区域（如：客厅）">
+        <button onclick="addCategory()">+ 新增类别</button>
+        <button class="print-btn" onclick="window.print()">🖨️ 打印/下载 PDF</button>
+        <button class="export-btn" onclick="exportLogs()">💾 导出历史 Log</button>
+    </div>
+
+    <div class="no-print" style="margin-bottom: 20px;">
+        <button id="startCleanBtn" onclick="startCleaning()" style="background: #52c41a; font-size: 16px; padding: 12px 24px;">🧹 开始清洁</button>
+        <button id="endCleanBtn" onclick="endCleaning()" style="background: #ff4d4f; font-size: 16px; padding: 12px 24px; display: none;">✅ 结束清洁</button>
+    </div>
+
+    <div id="routineContainer">
+        </div>
+
+    <div id="log-container" class="no-print" style="margin-top:20px; background:#f9f9f9; padding:10px; border-radius:8px;">
+        <strong>完成记录 (Log):</strong>
+        <div id="logList" style="font-size: 12px; height: 100px; overflow-y: auto;"></div>
+    </div>
+</div>
+
+<script>
+    let data = JSON.parse(localStorage.getItem('cleaningRoutine')) || [
+        { name: "厨房", tasks: [{ text: "清理油烟机", priority: "high", completed: false }] }
+    ];
+    let logs = [];
+    let isCleaningMode = false;
+    let cleaningStartTime = null;
+
+    function render() {
+        const container = document.getElementById('routineContainer');
+        container.innerHTML = '';
+
+        data.forEach((cat, catIdx) => {
+            const catDiv = document.createElement('div');
+            catDiv.className = 'category-card';
+            catDiv.innerHTML = `
+                <div class="category-header">
+                    <span class="category-title" contenteditable="true" onblur="editCategory(${catIdx}, this.innerText)">${cat.name}</span>
+                    <button class="delete-btn no-print" onclick="deleteCategory(${catIdx})">删除类别</button>
+                </div>
+                <div class="no-print" style="margin-bottom:10px; gap:5px">
+                    <input type="text" placeholder="添加项目..." id="taskInput-${catIdx}" style="flex-grow:1">
+                    <select id="priority-${catIdx}">
+                        <option value="high">高</option>
+                        <option value="medium" selected>中</option>
+                        <option value="low">低</option>
+                    </select>
+                    <button onclick="addTask(${catIdx})">添加</button>
+                </div>
+                <ul class="item-list">
+                    ${cat.tasks.map((task, taskIdx) => `
+                        <li class="task-item priority-${task.priority} ${task.completed ? 'completed' : ''}">
+                            <input type="checkbox" class="no-print" ${task.completed ? 'checked' : ''} onchange="toggleTask(${catIdx}, ${taskIdx})">
+                            <span class="task-text" contenteditable="true" onblur="editTask(${catIdx}, ${taskIdx}, this.innerText)">${task.text}</span>
+                            <button class="delete-btn no-print" style="padding:2px 8px" onclick="deleteTask(${catIdx}, ${taskIdx})">×</button>
+                        </li>
+                    `).join('')}
+                </ul>
+            `;
+            container.appendChild(catDiv);
+        });
+        saveData();
+    }
+
+    // --- 逻辑函数 ---
+    function addCategory() {
+        const input = document.getElementById('newCategoryInput');
+        if (input.value.trim()) {
+            data.push({ name: input.value, tasks: [] });
+            input.value = '';
+            render();
+        }
+    }
+
+    function deleteCategory(idx) {
+        if(confirm('确定删除该类别吗？')) {
+            data.splice(idx, 1);
+            render();
+        }
+    }
+
+    function addTask(catIdx) {
+        const input = document.getElementById(`taskInput-${catIdx}`);
+        const priority = document.getElementById(`priority-${catIdx}`).value;
+        if (input.value.trim()) {
+            data[catIdx].tasks.push({ text: input.value, priority: priority, completed: false });
+            input.value = '';
+            render();
+        }
+    }
+
+    function toggleTask(catIdx, taskIdx) {
+        const task = data[catIdx].tasks[taskIdx];
+        task.completed = !task.completed;
+        // 在清洁模式下不立即写入 log，等结束清洁时批量写入
+        if (!isCleaningMode && task.completed) {
+            const entry = `[${new Date().toLocaleString()}] 完成: ${data[catIdx].name} - ${task.text}`;
+            logs.push(entry);
+            const logDiv = document.createElement('div');
+            logDiv.textContent = entry;
+            document.getElementById('logList').prepend(logDiv);
+        }
+        render();
+    }
+
+    function startCleaning() {
+        isCleaningMode = true;
+        cleaningStartTime = new Date();
+        // 重置所有任务的完成状态
+        data.forEach(cat => {
+            cat.tasks.forEach(task => {
+                task.completed = false;
+            });
+        });
+        document.getElementById('startCleanBtn').style.display = 'none';
+        document.getElementById('endCleanBtn').style.display = 'inline-block';
+        render();
+    }
+
+    function endCleaning() {
+        isCleaningMode = false;
+        const endTime = new Date();
+
+        // 收集所有已完成的项目并写入 log
+        let completedCount = 0;
+        data.forEach(cat => {
+            cat.tasks.forEach(task => {
+                if (task.completed) {
+                    completedCount++;
+                    const entry = `[${cleaningStartTime.toLocaleString()}] 清洁任务完成: ${cat.name} - ${task.text}`;
+                    logs.push(entry);
+                    const logDiv = document.createElement('div');
+                    logDiv.textContent = entry;
+                    document.getElementById('logList').prepend(logDiv);
+                }
+            });
+        });
+
+        // 添加清洁总结
+        const summaryEntry = `[${endTime.toLocaleString()}] 清洁完成！共完成 ${completedCount} 个任务，用时 ${Math.round((endTime - cleaningStartTime) / 60000)} 分钟`;
+        logs.push(summaryEntry);
+        const summaryDiv = document.createElement('div');
+        summaryDiv.textContent = summaryEntry;
+        summaryDiv.style.fontWeight = 'bold';
+        summaryDiv.style.color = '#52c41a';
+        document.getElementById('logList').prepend(summaryDiv);
+
+        document.getElementById('startCleanBtn').style.display = 'inline-block';
+        document.getElementById('endCleanBtn').style.display = 'none';
+        render();
+    }
+
+    function editCategory(idx, val) { data[idx].name = val; saveData(); }
+    function editTask(cIdx, tIdx, val) { data[cIdx].tasks[tIdx].text = val; saveData(); }
+    function deleteTask(cIdx, tIdx) { data[cIdx].tasks.splice(tIdx, 1); render(); }
+    function saveData() { localStorage.setItem('cleaningRoutine', JSON.stringify(data)); }
+
+    function exportLogs() {
+        const blob = new Blob([logs.join('\n')], { type: 'text/plain' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `清洁记录_${new Date().toISOString().slice(0,10)}.txt`;
+        a.click();
+    }
+
+    render();
+</script>
+
+</body>
+</html>
