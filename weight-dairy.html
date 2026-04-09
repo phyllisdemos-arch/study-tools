@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>体重记录永久版 (自动保存)</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif; background-color: #f0f2f5; margin: 20px; color: #333; }
+        .container { max-width: 1100px; margin: auto; background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+        h1 { text-align: center; color: #1a202c; margin-bottom: 25px; }
+        
+        .config-section { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; padding: 20px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; }
+        .config-section label { display: block; font-weight: 600; margin-bottom: 5px; font-size: 0.9em; color: #4a5568; }
+        input { padding: 8px; border: 1px solid #cbd5e0; border-radius: 4px; width: 100%; box-sizing: border-box; }
+        
+        .btn-group { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+        button { padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; border: none; transition: 0.2s; }
+        .btn-save { background-color: #48bb78; color: white; }
+        .btn-print { background-color: #4299e1; color: white; }
+        .btn-export { background-color: #718096; color: white; }
+        button:hover { opacity: 0.8; }
+
+        .chart-container { position: relative; height: 350px; margin-bottom: 30px; }
+
+        table { width: 100%; border-collapse: collapse; background: white; }
+        th, td { border: 1px solid #e2e8f0; padding: 10px; text-align: center; }
+        th { background-color: #2d3748; color: white; position: sticky; top: 0; }
+        tr:nth-child(even) { background-color: #f7fafc; }
+        .mw, .ew { width: 80px; text-align: center; border: 1px solid #edf2f7; padding: 4px; }
+        .percent-bar { font-weight: bold; color: #38a169; }
+
+        @media print {
+            .config-section, .btn-group, .no-print { display: none !important; }
+            .container { box-shadow: none; width: 100%; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>体重数据记录分析表 (斤)</h1>
+
+    <div class="config-section">
+        <div>
+            <label>初始体重 (斤):</label>
+            <input type="number" id="startWeight" value="157" step="0.1" onchange="saveConfig()">
+        </div>
+        <div>
+            <label>目标体重 (斤):</label>
+            <input type="number" id="targetWeight" value="140" step="0.1" onchange="saveConfig()">
+        </div>
+        <div>
+            <label>起始日期:</label>
+            <input type="date" id="startDate" value="2026-04-07" onchange="generateTable(); saveConfig();">
+        </div>
+        <div>
+            <label>结束日期:</label>
+            <input type="date" id="endDate" value="2026-04-20" onchange="generateTable(); saveConfig();">
+        </div>
+    </div>
+
+    <div class="btn-group">
+        <button class="btn-print" onclick="window.print()">打印/保存为PDF</button>
+        <button class="btn-export" onclick="exportData()">导出备份文件</button>
+        <button class="btn-export" onclick="document.getElementById('importFile').click()">导入备份数据</button>
+        <input type="file" id="importFile" style="display:none" onchange="importData(this)">
+    </div>
+
+    <div class="chart-container">
+        <canvas id="weightChart"></canvas>
+    </div>
+
+    <table id="dataTable">
+        <thead>
+            <tr>
+                <th>日期</th>
+                <th>早上 (斤)</th>
+                <th>晚上 (斤)</th>
+                <th>波动</th>
+                <th>运动</th>
+                <th>饮食</th>
+                <th>距目标</th>
+                <th>完成度</th>
+            </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+    </table>
+</div>
+
+<script>
+let myChart;
+let historyData = JSON.parse(localStorage.getItem('weightData')) || {};
+
+// 保存基础配置（体重、日期）
+function saveConfig() {
+    const config = {
+        startWeight: document.getElementById('startWeight').value,
+        targetWeight: document.getElementById('targetWeight').value,
+        startDate: document.getElementById('startDate').value,
+        endDate: document.getElementById('endDate').value
+    };
+    localStorage.setItem('weightConfig', JSON.stringify(config));
+}
+
+// 加载基础配置
+function loadConfig() {
+    const config = JSON.parse(localStorage.getItem('weightConfig'));
+    if (config) {
+        document.getElementById('startWeight').value = config.startWeight;
+        document.getElementById('targetWeight').value = config.targetWeight;
+        document.getElementById('startDate').value = config.startDate;
+        document.getElementById('endDate').value = config.endDate;
+    }
+}
+
+function generateTable() {
+    const startD = new Date(document.getElementById('startDate').value);
+    const endD = new Date(document.getElementById('endDate').value);
+    const tbody = document.getElementById('tableBody');
+    tbody.innerHTML = '';
+    const dates = [];
+
+    let curr = new Date(startD);
+    while (curr <= endD) {
+        const dStr = curr.toISOString().split('T')[0];
+        dates.push(dStr);
+        
+        // 读取该日期的旧数据
+        const dayData = historyData[dStr] || { mw: '', ew: '', exc: true, diet: true };
+
+        const tr = document.createElement('tr');
+        tr.dataset.date = dStr;
+        tr.innerHTML = `
+            <td>${dStr}</td>
+            <td><input type="number" class="mw" step="0.1" value="${dayData.mw}" oninput="saveDayData('${dStr}', this)"></td>
+            <td><input type="number" class="ew" step="0.1" value="${dayData.ew}" oninput="saveDayData('${dStr}', this)"></td>
+            <td class="fluct">-</td>
+            <td><input type="checkbox" class="exc" ${dayData.exc ? 'checked' : ''} onchange="saveDayData('${dStr}', this)"></td>
+            <td><input type="checkbox" class="diet" ${dayData.diet ? 'checked' : ''} onchange="saveDayData('${dStr}', this)"></td>
+            <td class="diff">-</td>
+            <td class="percent">-</td>
+        `;
+        tbody.appendChild(tr);
+        updateCalculations(tr);
+        curr.setDate(curr.getDate() + 1);
+    }
+    initChart(dates);
+}
+
+function saveDayData(date, input) {
+    const row = input.closest('tr');
+    historyData[date] = {
+        mw: row.querySelector('.mw').value,
+        ew: row.querySelector('.ew').value,
+        exc: row.querySelector('.exc').checked,
+        diet: row.querySelector('.diet').checked
+    };
+    localStorage.setItem('weightData', JSON.stringify(historyData));
+    updateCalculations(row);
+    updateChart();
+}
+
+function updateCalculations(row) {
+    const mw = parseFloat(row.querySelector('.mw').value);
+    const ew = parseFloat(row.querySelector('.ew').value);
+    const startW = parseFloat(document.getElementById('startWeight').value);
+    const targetW = parseFloat(document.getElementById('targetWeight').value);
+
+    if (mw && ew) {
+        row.querySelector('.fluct').innerText = (ew - mw).toFixed(1);
+    }
+    if (mw) {
+        row.querySelector('.diff').innerText = (mw - targetW).toFixed(1);
+        const p = ((startW - mw) / (startW - targetW) * 100).toFixed(1);
+        row.querySelector('.percent').innerHTML = `<span class="percent-bar">${p}%</span>`;
+    }
+}
+
+function initChart(labels) {
+    const ctx = document.getElementById('weightChart').getContext('2d');
+    if (myChart) myChart.destroy();
+    
+    const startW = parseFloat(document.getElementById('startWeight').value);
+    const targetW = parseFloat(document.getElementById('targetWeight').value);
+
+    myChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                { label: '早起体重', data: labels.map(d => historyData[d]?.mw || null), borderColor: '#3182ce', tension: 0.3, spanGaps: true },
+                { label: '目标线', data: labels.map(() => targetW), borderColor: '#f56565', borderDash: [5, 5], pointRadius: 0 },
+                { label: '起始线', data: labels.map(() => startW), borderColor: '#cbd5e0', borderDash: [2, 2], pointRadius: 0 }
+            ]
+        },
+        options: { responsive: true, maintainAspectRatio: false }
+    });
+}
+
+function updateChart() {
+    const labels = myChart.data.labels;
+    myChart.data.datasets[0].data = labels.map(d => historyData[d]?.mw || null);
+    myChart.update();
+}
+
+function exportData() {
+    const allData = { config: localStorage.getItem('weightConfig'), data: historyData };
+    const blob = new Blob([JSON.stringify(allData)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `体重备份_${new Date().toLocaleDateString()}.json`;
+    a.click();
+}
+
+function importData(input) {
+    const reader = new FileReader();
+    reader.onload = function() {
+        const imported = JSON.parse(reader.result);
+        localStorage.setItem('weightConfig', imported.config);
+        localStorage.setItem('weightData', JSON.stringify(imported.data));
+        historyData = imported.data;
+        location.reload();
+    };
+    reader.readAsText(input.files[0]);
+}
+
+window.onload = () => { loadConfig(); generateTable(); };
+</script>
+</body>
+</html>
